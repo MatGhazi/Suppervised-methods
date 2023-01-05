@@ -1,0 +1,315 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+In this project 4 algorithm for classification of heart disease dataset has been employed.
+SVM
+NEURAL NETWORKS
+KNN
+DECISION TREE
+
+********************************** Feature Selection based on the last assignment ***********************************
+```{r}
+data <- read.csv('heart.csv')
+data <- subset(data, select = -c(id))
+
+data[which(data$age>=60), 'age'] <- 'elderly'
+data[which((data$age>=45)&(data$age<60)), 'age'] <- 'middle'
+data[which((data$age<45)), 'age'] <- 'young'
+data$age <- as.factor(data$age)
+
+data$fbs <- as.factor(data$fbs)
+data$exang <- as.factor(data$exang)
+
+drops <- c('fbs',"trestbps")
+data<- data[ , !(names(data) %in% drops)]
+dim(data)
+colnames(data)
+```
+**************** SVM ***********************
+hear different kernel such as linear, polynomial, radial has examined.
+
+```{r}
+library("e1071")
+library(GGally)
+library(ggplot2)
+library(caret)
+library(kernlab)
+
+# data <- data1
+```
+```{r}
+# Split data into training and test datasets. We will use 70%/30% split again.
+set.seed(123)
+dat.d <- sample(1:nrow(data),size=nrow(data)*0.7,replace = FALSE) #random selection of 70% data.
+train.data <- data[dat.d,] # 70% training data
+test.data <- data[-dat.d,] # remaining 30% test data
+head(train.data)
+head(test.data)
+nrow(train.data)
+nrow(test.data)
+```
+```{r}
+# Fit SVM with linear kernel approch 111111
+svm.model <- svm(target ~ ., data = train.data, kernel = "linear")
+svm.pred = predict(svm.model,test.data[, -15])
+# summary(svm.pred)
+```
+
+```{r}
+# Fit SVM with linear kernel approach 22222
+svm.linear.tune = tune.svm(target~., data=train.data, kernel="linear",
+  cost=c(0.001, 0.01, 0.1, 1, 5, 10))
+# summary(svm.linear.tune)
+
+# Optimal model for linear kernel
+svm.best.linear = svm.linear.tune$best.model
+svm.pred = predict(svm.best.linear, newdata=test.data[, -15])
+```
+```{r}
+# Parameter tuning – polynomial kernel approach 33333
+svm.poly.tune = tune.svm(target~., data=train.data, kernel="polynomial",
+degree=c(3,4,5), coef0=c(0.001, 0.01, 0.1, 1, 5, 10))
+# summary(svm.poly.tune)
+
+svm.best.poly = svm.poly.tune$best.model
+svm.pred = predict(svm.best.poly, newdata=test.data[, -15])
+```
+```{r}
+# Parameter tuning – rbf kernel approach 44444
+set.seed(999)
+svm.rbf.tune = tune.svm(target~., data=train.data,kernel="radial",
+gamma=c(0.001, 0.1, 0.5, 1, 5, 10))
+summary(svm.rbf.tune)
+svm.best.rbf = svm.rbf.tune$best.model
+svm.pred = predict(svm.best.rbf, newdata=test.data[, -15])
+```
+
+```{r}
+# Confusion matrix
+svm.results = confusionMatrix(table(predicted = svm.pred,
+  actual = test.data$target))
+svm.results
+```
+```{r}
+library(pROC)
+predicy_0_1 <- ifelse(test.data$target == "disease", 1, 0)
+predicted <- ifelse(svm.pred == "disease", 1, 0)
+res.roc <- roc(predicy_0_1, predicted)
+plot.roc(res.roc, print.auc = TRUE)
+```
+******************* NEURAL NEWTWORKS *************************************************
+```{r}
+library(neuralnet)
+library(caret)
+```
+
+```{r}
+head(data)
+#Min Max Normalization
+data$chol <-(data$chol-min(data$chol)) /
+                  (max(data$chol)-min(data$chol))
+data$thalach <-(data$thalach-min(data$thalach)) /
+                  (max(data$thalach)-min(data$thalach))
+data$oldpeak <-(data$oldpeak-min(data$oldpeak)) /
+                  (max(data$oldpeak)-min(data$oldpeak))
+data$major_vessels <-(data$major_vessels-min(data$major_vessels)) /
+                  (max(data$major_vessels)-min(data$major_vessels))
+```
+```{r}
+# Dummy
+head(model.matrix(~age, data=data))
+heart_matrix <- model.matrix(~age+sex+cp+restecg
+                           +exang+slope+restwm
+                           +target, data=data)
+heart_matrix <-cbind(heart_matrix, data[,c("chol","thalach","oldpeak","major_vessels")])
+```
+```{r}
+# Make the column names clean up
+colnames(heart_matrix)[5] <- "cpatypical_angina"
+colnames(heart_matrix)[6] <- "cpnon_anginal_pain"
+colnames(heart_matrix)[7] <- "cptypical_angina"
+colnames(heart_matrix)[8] <- "rest_or_defef_hyper"
+colnames(heart_matrix)[9] <- "restecg_abnormality"
+colnames(heart_matrix)[10] <- "exang_true"
+colnames(heart_matrix)[13] <- "restwmmild_moderate" 
+colnames(heart_matrix)[14] <- "restwmmoderate_severe"
+colnames(heart_matrix)[16] <- "target"
+col_list <- paste(c(colnames(heart_matrix[,-c(1,16)])),collapse="+")
+col_list <- paste(c("target~",col_list),collapse="")
+f <- formula(col_list)
+```
+
+```{r}
+# Split data into training and test datasets. We will use 70%/30% split again.
+set.seed(123)
+dat.d <- sample(1:nrow(heart_matrix),size=nrow(heart_matrix)*0.7,replace = FALSE) #random selection of 70% data.
+train.data <- heart_matrix[dat.d,] # 70% training data
+test.data <- heart_matrix[-dat.d,] # remaining 30% test data
+head(train.data)
+head(test.data)
+nrow(train.data)
+nrow(test.data)
+```
+
+
+```{r}
+#Neural Network
+
+nn <- neuralnet(f,data=heart_matrix,hidden=c(5,3),
+                    linear.output=FALSE,
+                    threshold = 0.01,
+                    # rep=5,
+                    # learningrate.limit = NULL, #rprop+
+                    # learningrate.factor = list(minus = 0.5, plus = 1.2), #rprop+
+                    # algorithm = "rprop+")
+                    algorithm = "backprop",
+                    learningrate = 0.01)
+
+nn$result.matrix
+plot(nn)
+```
+```{r}
+nn.results <- compute(nn, train.data[,-c(1,16)])
+results <- data.frame(actual = train.data[,c(16)] , prediction = nn.results$net.result)
+roundedresults<-sapply(results,round,digits=0)
+roundedresultsdf=data.frame(roundedresults)
+performance <- confusionMatrix(table(roundedresultsdf$prediction, roundedresultsdf$actual))
+performance
+```
+```{r}
+res.roc <- roc(roundedresultsdf$actual, roundedresultsdf$prediction)
+plot.roc(res.roc, print.auc = TRUE)
+```
+
+************************************ KNN ***************************************
+Data  = is heart_matrix which calculated in NN part(dummy and normalization has been done)
+```{r}
+heart_data <- heart_matrix[,-c(1)]
+heart_data$target <- as.factor(heart_data$target)
+# load libraries
+library(class)
+library(caret)
+library(mlr3)
+library(mlr3learners)
+library(mlr3measures)
+library(C50)
+```
+
+```{r}
+train.size <- .7
+train.indices <- sample(x = seq(1, nrow(heart_data), by = 1),
+                        size = ceiling(train.size * nrow(heart_data)), replace = FALSE)
+data.train <- heart_data[ train.indices, ]
+data.test <- heart_data[ -train.indices, ]
+```
+```{r}
+heart.task <- TaskClassif$new(id = "heart", backend = data.train, target = "target")
+# run experiment
+k.values <- rev(c(1:10, 15, 20, 25, 30, 35, 40, 45, 50))
+storage <- data.frame(matrix(NA, ncol = 3, nrow = length(k.values)))
+colnames(storage) <- c("acc_train", "acc_test", "k")
+for (i in 1:length(k.values)) {
+  heart.learner <- lrn("classif.kknn", k = k.values[i])
+  heart.learner$train(task = heart.task)
+  # test data
+  # choose additional adequate measures from: mlr3::mlr_measures
+  heart.pred <- heart.learner$predict_newdata(newdata = data.test)
+  storage[i, "acc_test"] <- heart.pred$score(msr("classif.acc"))
+  # train data
+  heart.pred <- heart.learner$predict_newdata(newdata = data.train)
+  storage[i, "acc_train"] <- heart.pred$score(msr("classif.acc"))
+  storage[i, "k"] <- k.values[i]
+}
+```
+
+```{r}
+storage <- storage[rev(order(storage$k)), ]
+ggplot(data=storage, aes(x=k))+
+ geom_line( aes(y = acc_train,col = 'train'))+
+             geom_line( aes(y = acc_test,col = 'test'))+
+            xlab("k - the number of neighbors to consider")+ ylab("accuracy")+
+            ggtitle("Overfitting behavior KNN")
+```
+
+```{r}
+# Fit KNN with K=35
+heart.learner.knn <- lrn("classif.kknn", k = 4)
+heart.learner.knn$train(task = heart.task)
+heart.pred.knn <- heart.learner.knn$predict_newdata(newdata = data.test)
+knn.results = confusionMatrix(table(predicted = heart.pred.knn$response,
+ actual = data.test$target))
+knn.results
+```
+```{r}
+res.roc <- roc(as.numeric(data.test$target),as.numeric(heart.pred.knn$response))
+plot.roc(res.roc, print.auc = TRUE)
+```
+**************************** ENSEMBLE LEARNING *********************************************************
+heart_matrix data set include dummy and normalization which come from above neural networks
+```{r}
+heart_data <- heart_matrix[,-c(1)]
+
+train.size <- .7
+train.indices <- sample(x = seq(1, nrow(heart_data), by = 1),
+                        size = ceiling(train.size * nrow(heart_data)), replace = FALSE)
+data.train <- heart_data[ train.indices, ]
+data.test <- heart_data[ -train.indices, ]
+```
+
+```{r}
+library(SuperLearner)
+library(dplyr)
+library(caret)
+```
+```{r}
+set.seed(999)
+# Fit the ensemble model
+model <- SuperLearner(data.train[, 15],
+ data.train[, -15],
+ family=binomial(),
+ SL.library=list("SL.ksvm","SL.knn","SL.nnet"))
+model
+```
+```{r}
+set.seed(999)
+# Get V-fold cross-validated risk estimate
+cv.model <- CV.SuperLearner(data.train[,15],
+ scale(data.train[,-15]),
+ V = 5,
+ family=binomial(),
+ SL.library=list("SL.ksvm",
+ "SL.knn",
+"SL.nnet"))
+summary(cv.model)
+plot(cv.model)
+```
+
+```{r}
+predictions <- predict.SuperLearner(model, newdata = data.test[ , -15], 
+                                    X =data.train[, -15], Y = data.train[,15])
+head(predictions$pred)
+```
+```{r}
+head(predictions$library.predict)
+```
+```{r}
+conv.preds <- ifelse(predictions$pred>=0.5,1,0)
+head(conv.preds)
+```
+
+```{r}
+confusionMatrix(as.factor(conv.preds), as.factor(data.test[,15]))
+```
+
+
+
+
+
+
+
+
+
+
+
+
